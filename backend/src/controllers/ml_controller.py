@@ -177,10 +177,17 @@ def run_full_comparison(request: QuantumTrainRequest):
             key=lambda x: (x[1]["accuracy"], -x[1]["fpr"])
         )
 
+        # 8. Return complete comparison report
         return {
             "status": "success",
             "run_id": run_id,
+
             "sample_used": request.sample_size,
+            "test_used": request.test_size,
+
+            "train_split": f"{request.sample_size} records ({request.sample_size//2} normal + {request.sample_size//2} attack)",
+            "test_split": f"{request.test_size} records ({request.test_size//2} normal + {request.test_size//2} attack)",
+
             "pca_variance_retained": round(variance, 2),
             "comparison_table": comparison_table,
             "best_model": best_model[0],
@@ -324,7 +331,9 @@ def list_all_reports():
     from src.database.db_connection import SessionLocal
     from src.models.db_models import ModelMetrics
     from sqlalchemy import distinct, func
+
     db = SessionLocal()
+
     try:
         runs = db.query(
             ModelMetrics.run_id,
@@ -332,7 +341,9 @@ def list_all_reports():
             func.count(distinct(ModelMetrics.model_name)).label("model_count")
         ).filter(
             ModelMetrics.run_id.isnot(None)
-        ).group_by(ModelMetrics.run_id).order_by(func.min(ModelMetrics.timestamp).desc()).all()
+        ).group_by(ModelMetrics.run_id).order_by(
+            func.min(ModelMetrics.timestamp).desc()
+        ).all()
 
         return {
             "runs": [
@@ -343,8 +354,10 @@ def list_all_reports():
                 } for r in runs
             ]
         }
+
     finally:
         db.close()
+
 
 # ============================================================
 # SINGLE RECORD PREDICTION

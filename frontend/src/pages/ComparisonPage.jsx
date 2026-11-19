@@ -7,6 +7,19 @@ import AccuracyChart from '../components/ui/AccuracyChart';
 import Spinner from '../components/ui/Spinner';
 import EmptyState from '../components/ui/EmptyState';
 
+const SAMPLE_OPTIONS = [50, 100, 200, 400, 800, 4000];
+
+const formatSampleLabel = (n) =>
+  n === 4000 ? 'Full Dataset (4000)' : `${n} records`;
+
+const formatSplit = (n, which) => {
+  if (n === 4000) {
+    return which === 'train' ? '~2000 normal + ~2000 attack' : '~400 normal + ~400 attack';
+  }
+  if (which === 'train') return `${n / 2} normal + ${n / 2} attack`;
+  return `${Math.round(n / 4)} normal + ${Math.round(n / 4)} attack`;
+};
+
 function QuantumCircuitCard({ modelName, meta }) {
   if (!meta) return null;
   return (
@@ -41,7 +54,11 @@ export default function ComparisonPage() {
       setResults(data);
       toast.success('Comparison completed');
     } catch (err) {
-      toast.error(err.message || 'Comparison failed');
+      if (err.code === 'ECONNABORTED') {
+        toast.error('Timeout — try a smaller sample size');
+      } else {
+        toast.error(err.message || 'Comparison failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -58,6 +75,20 @@ export default function ComparisonPage() {
         </p>
       </div>
 
+      {/* Data Split Banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+        <div className="text-blue-600 mt-0.5">📊</div>
+        <div className="text-sm">
+          <p className="font-semibold text-blue-900">Data Split (NSL-KDD)</p>
+          <p className="text-blue-800 text-xs mt-1">
+            <strong>Train:</strong> {sampleSize} records ({formatSplit(sampleSize, 'train')}) — used to fit models
+          </p>
+          <p className="text-blue-800 text-xs">
+            <strong>Test:</strong> {Math.round(sampleSize / 2)} records ({formatSplit(sampleSize, 'test')}) — used to evaluate metrics
+          </p>
+        </div>
+      </div>
+
       {/* Controls */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex flex-wrap items-center gap-4">
         <div>
@@ -68,7 +99,9 @@ export default function ComparisonPage() {
             disabled={loading}
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-slate-100"
           >
-            {[100, 200, 400, 800].map(n => <option key={n} value={n}>{n} records</option>)}
+            {SAMPLE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{formatSampleLabel(n)}</option>
+            ))}
           </select>
         </div>
         <div className="flex-1" />
@@ -78,7 +111,10 @@ export default function ComparisonPage() {
           className="flex items-center gap-2 bg-quantum-blue hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium disabled:bg-slate-300 transition"
         >
           {loading ? (
-            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Running...</>
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Running...
+            </>
           ) : (
             <><Play size={16} /> Run Comparison</>
           )}
@@ -91,13 +127,12 @@ export default function ComparisonPage() {
         <EmptyState
           icon={BarChart3}
           title="No comparison yet"
-          description="Click 'Run Comparison' to train Random Forest, SVM, QSVM, and VQC on identical data and view the full benchmark."
+          description="Click 'Run Comparison' to train Random Forest, SVM, QSVM, and VQC on identical data."
         />
       )}
 
       {!loading && results && (
         <>
-          {/* Quantum Circuit Metadata */}
           {results.quantum_metadata && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <QuantumCircuitCard modelName="QSVM" meta={results.quantum_metadata.QSVM} />
@@ -105,7 +140,6 @@ export default function ComparisonPage() {
             </div>
           )}
 
-          {/* Chart + Insights */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <AccuracyChart comparisonTable={results.comparison_table} />
             <div className="bg-white rounded-xl p-6 shadow-sm">
@@ -125,7 +159,6 @@ export default function ComparisonPage() {
             </div>
           </div>
 
-          {/* Full Table */}
           <ComparisonTable
             comparisonTable={results.comparison_table}
             bestModel={results.best_model}

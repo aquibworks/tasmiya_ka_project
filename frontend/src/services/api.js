@@ -3,11 +3,13 @@ import axios from 'axios';
 const BASE = 'http://127.0.0.1:8000/api';
 const ROOT = 'http://127.0.0.1:8000';
 
-const client = axios.create({ baseURL: BASE, timeout: 600000 });
+const client = axios.create({ 
+  baseURL: BASE, 
+  timeout: 3600000  // 1 hour — for full 4000-sample quantum kernels
+});
 
 export const api = {
   health: () => axios.get(ROOT).then(r => r.data),
-  preprocess: () => client.post('/preprocess').then(r => r.data),
   trainClassical: () => client.post('/train/classical').then(r => r.data),
   trainQuantum: (sampleSize = 100, testSize = 50) =>
     client.post('/train/quantum', { sample_size: sampleSize, test_size: testSize }).then(r => r.data),

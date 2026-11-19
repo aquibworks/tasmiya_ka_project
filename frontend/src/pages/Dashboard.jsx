@@ -8,6 +8,19 @@ import AccuracyChart from '../components/ui/AccuracyChart';
 import Spinner from '../components/ui/Spinner';
 import EmptyState from '../components/ui/EmptyState';
 
+const SAMPLE_OPTIONS = [50, 100, 200, 400, 800, 4000];
+
+const formatSampleLabel = (n) =>
+  n === 4000 ? 'Full Dataset (4000)' : `${n} records`;
+
+const formatSplit = (n, which) => {
+  if (n === 4000) {
+    return which === 'train' ? '~2000 normal + ~2000 attack' : '~400 normal + ~400 attack';
+  }
+  if (which === 'train') return `${n / 2} normal + ${n / 2} attack`;
+  return `${Math.round(n / 4)} normal + ${Math.round(n / 4)} attack`;
+};
+
 export default function Dashboard() {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -21,7 +34,11 @@ export default function Dashboard() {
       setResults(data);
       toast.success('Comparison complete');
     } catch (err) {
-      toast.error(err.message || 'Comparison failed');
+      if (err.code === 'ECONNABORTED') {
+        toast.error('Timeout — try a smaller sample size');
+      } else {
+        toast.error(err.message || 'Comparison failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -29,15 +46,29 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <LayoutDashboard className="text-quantum-blue" />
-            Dashboard
-          </h1>
-          <p className="text-slate-500 text-sm">
-            High-level summary of hybrid quantum-classical threat detection
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <LayoutDashboard className="text-quantum-blue" />
+          Dashboard
+        </h1>
+        <p className="text-slate-500 text-sm">
+          High-level summary of hybrid quantum-classical threat detection
+        </p>
+      </div>
+
+      {/* Data Split Banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+        <div className="text-blue-600 mt-0.5">📊</div>
+        <div className="text-sm">
+          <p className="font-semibold text-blue-900">Data Split (NSL-KDD)</p>
+          <p className="text-blue-800 text-xs mt-1">
+            <strong>Train:</strong> {sampleSize} records ({formatSplit(sampleSize, 'train')}) — used to fit models
+          </p>
+          <p className="text-blue-800 text-xs">
+            <strong>Test:</strong> {Math.round(sampleSize / 2)} records ({formatSplit(sampleSize, 'test')}) — used to evaluate metrics
+          </p>
+          <p className="text-blue-700 text-xs mt-1">
+            All 4 models trained on identical 4-feature PCA data.
           </p>
         </div>
       </div>
@@ -52,14 +83,12 @@ export default function Dashboard() {
             disabled={loading}
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-slate-100"
           >
-            {[100, 200, 400, 800].map(n => (
-              <option key={n} value={n}>{n} records</option>
+            {SAMPLE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{formatSampleLabel(n)}</option>
             ))}
           </select>
         </div>
-
         <div className="flex-1" />
-
         <button
           onClick={run}
           disabled={loading}
@@ -71,14 +100,11 @@ export default function Dashboard() {
               Running Pipeline...
             </>
           ) : (
-            <>
-              <Play size={16} /> Run Full Comparison
-            </>
+            <><Play size={16} /> Run Full Comparison</>
           )}
         </button>
       </div>
 
-      {/* Content */}
       {loading && (
         <Spinner label={`Training all 4 models on ${sampleSize} samples... (may take 2-10 min)`} />
       )}
@@ -87,13 +113,12 @@ export default function Dashboard() {
         <EmptyState
           icon={Activity}
           title="No comparison data yet"
-          description="Click 'Run Full Comparison' to train all 4 models (Random Forest, SVM, QSVM, VQC) on the same data and see the results."
+          description="Click 'Run Full Comparison' to train all 4 models on identical data and see the results."
         />
       )}
 
       {!loading && results && (
         <>
-          {/* Metric Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
               label="Best Model"
@@ -126,10 +151,8 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Charts + Insights */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <AccuracyChart comparisonTable={results.comparison_table} />
-
             <div className="bg-white rounded-xl p-6 shadow-sm">
               <h3 className="font-bold mb-4">Analysis Insights</h3>
               <ul className="space-y-3">
@@ -147,7 +170,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Full Table */}
           <ComparisonTable
             comparisonTable={results.comparison_table}
             bestModel={results.best_model}
