@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 
 const BASE = 'http://127.0.0.1:8000/api';
@@ -26,4 +27,8 @@ export const api = {
   getReport: (runId) => client.get(`/report/${runId}`).then(r => r.data),
   getStatus: (runId) => client.get(`/status/${runId}`).then(r => r.data),
   listReports: () => client.get('/reports').then(r => r.data),
+
+  // Raw prediction
+  predictRaw: (model, features) =>
+    client.post('/predict/raw', { model, features }).then(r => r.data),
 };

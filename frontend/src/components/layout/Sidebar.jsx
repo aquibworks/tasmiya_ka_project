@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, FlaskConical, Upload, BarChart3,
+  LayoutDashboard, FlaskConical, Upload, BarChart3, FileCheck,
   History, Target, Cpu
 } from 'lucide-react';
 
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/compare', label: 'Comparison', icon: BarChart3 },
   { to: '/history', label: 'Run History', icon: History },
   { to: '/predict', label: 'Live Prediction', icon: Target },
+  { to: '/proof', label: 'Proof of Work', icon: FileCheck }, 
 ];
 
 export default function Sidebar() {

@@ -8,6 +8,7 @@ import ComparisonPage from './pages/ComparisonPage';
 import RunHistory from './pages/RunHistory';
 import LivePrediction from './pages/LivePrediction';
 import ReportDetail from './pages/ReportDetail';
+import ProofOfWork from './pages/ProofOfWork';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/history" element={<RunHistory />} />
           <Route path="/predict" element={<LivePrediction />} />
           <Route path="/report/:runId" element={<ReportDetail />} />
+          <Route path="/proof" element={<ProofOfWork />} />
         </Routes>
       </Layout>
     </BrowserRouter>
