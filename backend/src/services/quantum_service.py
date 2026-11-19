@@ -83,7 +83,7 @@ class QuantumService:
             db.close()
 
     # =========================================================
-    # QSVM TRAINING
+    # QSVM TRAINING (with kernel cache)
     # =========================================================
     def train_qsvm(self, X_train, y_train, X_test, y_test, run_id=None):
         logger.info("Starting QSVM Training (4-Qubit ZZFeatureMap)...")
@@ -96,25 +96,43 @@ class QuantumService:
         backend = AerSimulator()
         qkernel = FidelityQuantumKernel(feature_map=feature_map)
 
-        logger.info("Computing Quantum Kernel Matrix manually for progress tracking...")
         n_train = len(X_train_q)
         n_test = len(X_test_q)
 
-        train_kernel_matrix = np.zeros((n_train, n_train))
-        test_kernel_matrix = np.zeros((n_test, n_train))
+        train_cache_path = os.path.join(MODELS_DIR, f"qsvm_train_kernel_{n_train}.npy")
+        test_cache_path = os.path.join(MODELS_DIR, f"qsvm_test_kernel_{n_test}x{n_train}.npy")
+        cache_hit_train = os.path.exists(train_cache_path)
+        cache_hit_test = os.path.exists(test_cache_path)
 
-        print("\n--- Computing Train Kernel Matrix ---")
-        for i in tqdm(range(n_train), desc="Train Kernel Rows"):
-            for j in range(i, n_train):
-                val = qkernel.evaluate(np.array([X_train_q[i]]), np.array([X_train_q[j]]))[0][0]
-                train_kernel_matrix[i, j] = val
-                train_kernel_matrix[j, i] = val
+        if cache_hit_train:
+            logger.info(f"[CACHE HIT] Loading train kernel ({train_cache_path})")
+            train_kernel_matrix = np.load(train_cache_path)
+        else:
+            logger.info("Computing Train Kernel Matrix...")
+            train_kernel_matrix = np.zeros((n_train, n_train))
+            for i in tqdm(range(n_train), desc="Train Kernel Rows"):
+                for j in range(i, n_train):
+                    val = qkernel.evaluate(np.array([X_train_q[i]]), np.array([X_train_q[j]]))[0][0]
+                    train_kernel_matrix[i, j] = val
+                    train_kernel_matrix[j, i] = val
+            np.save(train_cache_path, train_kernel_matrix)
+            logger.info(f"[CACHED] Saved train kernel -> {train_cache_path}")
 
-        print("\n--- Computing Test Kernel Matrix ---")
-        for i in tqdm(range(n_test), desc="Test Kernel Rows"):
-            for j in range(n_train):
-                val = qkernel.evaluate(np.array([X_test_q[i]]), np.array([X_train_q[j]]))[0][0]
-                test_kernel_matrix[i, j] = val
+        if cache_hit_test:
+            logger.info(f"[CACHE HIT] Loading test kernel ({test_cache_path})")
+            test_kernel_matrix = np.load(test_cache_path)
+        else:
+            logger.info("Computing Test Kernel Matrix...")
+            test_kernel_matrix = np.zeros((n_test, n_train))
+            for i in tqdm(range(n_test), desc="Test Kernel Rows"):
+                for j in range(n_train):
+                    val = qkernel.evaluate(np.array([X_test_q[i]]), np.array([X_train_q[j]]))[0][0]
+                    test_kernel_matrix[i, j] = val
+            np.save(test_cache_path, test_kernel_matrix)
+            logger.info(f"[CACHED] Saved test kernel -> {test_cache_path}")
+
+        if cache_hit_train and cache_hit_test:
+            logger.info(f"[FAST] QSVM kernel loaded in {time.time() - start_time:.2f}s (cached)")
 
         logger.info("Training SVM with Quantum Kernel...")
         qsvm = SVC(kernel='precomputed', C=1.0, probability=True)
@@ -159,7 +177,6 @@ class QuantumService:
             np.save(os.path.join(MODELS_DIR, "qsvm_shift_min.npy"), X_train.min(axis=0))
             np.save(os.path.join(MODELS_DIR, "qsvm_shift_max.npy"), X_train.max(axis=0))
             logger.info("[SAVED] QSVM angle-shift bounds")
-
         except Exception as e:
             logger.error(f"Failed to save QSVM model: {e}")
 
@@ -173,17 +190,38 @@ class QuantumService:
         return metrics, circuit_meta
 
     # =========================================================
-    # VQC TRAINING
+    # VQC TRAINING (with seed + weight cache)
     # =========================================================
     def train_vqc(self, X_train, y_train, X_test, y_test, run_id=None):
         logger.info("Starting VQC Training (PennyLane 3-Layer RealAmplitudes)...")
         start_time = time.time()
 
+        n_qubits = 4
+        n_layers = 3
+        n_train = len(X_train)
+
+        # ═══════════════════════════════════════════════════════
+        # CACHE CHECK — if VQC weights exist for same sample size, reuse
+        # ═══════════════════════════════════════════════════════
+        weights_path = os.path.join(MODELS_DIR, "vqc_weights.npy")
+        meta_path = os.path.join(MODELS_DIR, "vqc_metadata.json")
+        cache_usable = False
+        trained_weights_flat = None
+
+        if os.path.exists(weights_path) and os.path.exists(meta_path):
+            try:
+                with open(meta_path) as f:
+                    old_meta = json.load(f)
+                if old_meta.get("n_train") == n_train:
+                    trained_weights_flat = np.load(weights_path)
+                    cache_usable = True
+                    logger.info(f"[CACHE HIT] VQC weights loaded (n_train={n_train}) -> skipping COBYLA")
+            except Exception as e:
+                logger.warning(f"VQC cache read failed: {e}")
+
         X_train_q = pnp.array(self._shift_to_angles(X_train), requires_grad=False)
         X_test_q = pnp.array(self._shift_to_angles(X_test), requires_grad=False)
 
-        n_qubits = 4
-        n_layers = 3
         dev = qml.device("default.qubit", wires=n_qubits)
 
         @qml.qnode(dev)
@@ -206,21 +244,33 @@ class QuantumService:
                 loss += (pred - target) ** 2
             return loss / len(y_batch)
 
-        logger.info("Training VQC with COBYLA (150 steps)...")
-        weights_flat = pnp.random.randn(n_layers * n_qubits, requires_grad=True)
+        # Train only if cache miss
+        if not cache_usable:
+            logger.info("Training VQC with COBYLA (150 steps)...")
+            np.random.seed(42)          # deterministic
+            pnp.random.seed(42)
+            weights_flat = pnp.random.randn(n_layers * n_qubits, requires_grad=True)
 
-        train_subset_size = min(200, len(X_train_q))
-        X_train_sub = X_train_q[:train_subset_size]
-        y_train_sub = y_train[:train_subset_size]
+            train_subset_size = min(200, len(X_train_q))
+            X_train_sub = X_train_q[:train_subset_size]
+            y_train_sub = y_train[:train_subset_size]
 
-        optimizer = minimize(
-            lambda w: cost(w, X_train_sub, y_train_sub),
-            weights_flat,
-            method='COBYLA',
-            options={'maxiter': 150}
-        )
-        trained_weights_flat = optimizer.x
+            optimizer = minimize(
+                lambda w: cost(w, X_train_sub, y_train_sub),
+                weights_flat,
+                method='COBYLA',
+                options={'maxiter': 150}
+            )
+            trained_weights_flat = np.array(optimizer.x, dtype=np.float64)
 
+            # Save weights
+            try:
+                np.save(weights_path, trained_weights_flat)
+                logger.info(f"[SAVED] VQC weights -> {weights_path}")
+            except Exception as e:
+                logger.error(f"VQC weight save failed: {e}")
+
+        # Evaluate
         logger.info("Evaluating VQC...")
         raw_preds = [circuit(trained_weights_flat, x) for x in X_test_q]
         y_pred = [1 if p > 0 else 0 for p in raw_preds]
@@ -237,32 +287,21 @@ class QuantumService:
             "shots": None
         }
 
-        # =========================================================
-        # SAVE VQC MODEL — FIXED (convert to plain numpy first)
-        # =========================================================
+        # Save metadata (with n_train for cache key)
         try:
-            weights_path = os.path.join(MODELS_DIR, "vqc_weights.npy")
-            
-            # ⚠️ Convert PennyLane tensor to plain numpy array
-            weights_to_save = np.array(trained_weights_flat, dtype=np.float64)
-            
-            np.save(weights_path, weights_to_save)
-            logger.info(f"[SAVED] VQC weights -> {weights_path}")
-
-            meta_path = os.path.join(MODELS_DIR, "vqc_metadata.json")
             with open(meta_path, "w") as f:
                 json.dump({
                     "n_qubits": n_qubits,
                     "n_layers": n_layers,
+                    "n_train": n_train,
                     "circuit_meta": circuit_meta,
                     "metrics": metrics,
                     "shift_min": X_train.min(axis=0).tolist(),
                     "shift_max": X_train.max(axis=0).tolist()
                 }, f, indent=2)
             logger.info(f"[SAVED] VQC metadata -> {meta_path}")
-
         except Exception as e:
-            logger.error(f"Failed to save VQC model: {e}")
+            logger.error(f"VQC metadata save failed: {e}")
 
         self._save_to_db(
             "VQC (4-Qubit)", metrics, train_time,

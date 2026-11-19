@@ -30,10 +30,12 @@ dist/
 *.sqlite3
 quantum_ids.db
 
-# ===== Models & Data (large binary / regenerable) =====
+# ===== Models & Data (regenerable, large) =====
 backend/src/data/uploads/
 backend/src/data/saved_models/*.pkl
 backend/src/data/saved_models/*.joblib
+backend/src/data/saved_models/*.npy
+backend/src/data/saved_models/*.json
 backend/src/data/*.txt
 
 # ===== Logs =====

@@ -14,10 +14,10 @@
     "shots": 1024
   },
   "metrics": {
-    "accuracy": 48.0,
-    "precision": 45.45,
-    "recall": 20.0,
-    "f1_score": 0.278,
-    "fpr": 24.0
+    "accuracy": 70.0,
+    "precision": 100.0,
+    "recall": 40.0,
+    "f1_score": 0.571,
+    "fpr": 0.0
   }
 }
