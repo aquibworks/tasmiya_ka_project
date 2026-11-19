@@ -1,0 +1,23 @@
+{
+  "feature_map": {
+    "type": "ZZFeatureMap",
+    "feature_dimension": 4,
+    "reps": 2,
+    "entanglement": "linear"
+  },
+  "circuit_meta": {
+    "qubits": 4,
+    "depth": 1,
+    "gates": 1,
+    "params": 0,
+    "backend": "Qiskit AerSimulator",
+    "shots": 1024
+  },
+  "metrics": {
+    "accuracy": 70.0,
+    "precision": 100.0,
+    "recall": 40.0,
+    "f1_score": 0.571,
+    "fpr": 0.0
+  }
+}

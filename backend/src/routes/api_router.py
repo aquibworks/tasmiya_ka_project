@@ -11,8 +11,9 @@ from src.controllers.ml_controller import (
     run_full_comparison,
     list_all_reports,
     predict_record,
+    predict_raw_record,
     PredictRequest, 
-    QuantumTrainRequest
+    QuantumTrainRequest,RawPredictRequest
 )
 
 router = APIRouter()
@@ -77,3 +78,7 @@ def status_endpoint(run_id: str):
 @router.post("/predict")
 def predict_endpoint(request: PredictRequest):
     return predict_record(request)
+
+@router.post("/predict/raw")
+def predict_raw_endpoint(request: RawPredictRequest):
+    return predict_raw_record(request)

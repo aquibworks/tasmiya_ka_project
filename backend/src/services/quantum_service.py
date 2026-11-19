@@ -1,5 +1,8 @@
 from tqdm import tqdm
 import time
+import os
+import json
+import joblib
 import numpy as np
 import warnings
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
@@ -8,20 +11,22 @@ from src.utils.logger import logger
 from src.database.db_connection import SessionLocal
 from src.models.db_models import ModelMetrics
 
-# Qiskit Imports
 from qiskit.circuit.library import ZZFeatureMap
 from qiskit_aer import AerSimulator
 from qiskit_machine_learning.kernels import FidelityQuantumKernel
 
-# PennyLane Imports
 import pennylane as qml
 from pennylane import numpy as pnp
 from scipy.optimize import minimize
 
 warnings.filterwarnings("ignore")
 
+MODELS_DIR = "src/data/saved_models"
+
 
 class QuantumService:
+    def __init__(self):
+        os.makedirs(MODELS_DIR, exist_ok=True)
 
     def _shift_to_angles(self, X):
         X_min = X.min(axis=0)
@@ -46,14 +51,12 @@ class QuantumService:
         }
 
     def _save_to_db(self, model_name, metrics, train_time, run_id=None, y_true=None, y_pred=None):
-        """Save metrics to DB. Single clean method (no duplicates)."""
         db = SessionLocal()
         try:
             tp = tn = fp = fn = 0
             if y_true is not None and y_pred is not None:
                 cm = confusion_matrix(y_true, y_pred)
                 tn, fp, fn, tp = cm.ravel()
-
             record = ModelMetrics(
                 run_id=run_id,
                 model_name=model_name,
@@ -114,7 +117,7 @@ class QuantumService:
                 test_kernel_matrix[i, j] = val
 
         logger.info("Training SVM with Quantum Kernel...")
-        qsvm = SVC(kernel='precomputed', C=1.0)
+        qsvm = SVC(kernel='precomputed', C=1.0, probability=True)
         qsvm.fit(train_kernel_matrix, y_train)
         y_pred = qsvm.predict(test_kernel_matrix)
 
@@ -129,6 +132,36 @@ class QuantumService:
             "backend": "Qiskit AerSimulator",
             "shots": 1024
         }
+
+        try:
+            qsvm_path = os.path.join(MODELS_DIR, "qsvm_model.pkl")
+            joblib.dump({
+                "svc_model": qsvm,
+                "X_train_shifted": X_train_q,
+                "train_kernel_matrix": train_kernel_matrix,
+            }, qsvm_path)
+            logger.info(f"[SAVED] QSVM model -> {qsvm_path}")
+
+            meta_path = os.path.join(MODELS_DIR, "qsvm_metadata.json")
+            with open(meta_path, "w") as f:
+                json.dump({
+                    "feature_map": {
+                        "type": "ZZFeatureMap",
+                        "feature_dimension": 4,
+                        "reps": 2,
+                        "entanglement": "linear"
+                    },
+                    "circuit_meta": circuit_meta,
+                    "metrics": metrics
+                }, f, indent=2)
+            logger.info(f"[SAVED] QSVM metadata -> {meta_path}")
+
+            np.save(os.path.join(MODELS_DIR, "qsvm_shift_min.npy"), X_train.min(axis=0))
+            np.save(os.path.join(MODELS_DIR, "qsvm_shift_max.npy"), X_train.max(axis=0))
+            logger.info("[SAVED] QSVM angle-shift bounds")
+
+        except Exception as e:
+            logger.error(f"Failed to save QSVM model: {e}")
 
         self._save_to_db(
             "QSVM (4-Qubit)", metrics, train_time,
@@ -203,6 +236,33 @@ class QuantumService:
             "backend": "PennyLane default.qubit",
             "shots": None
         }
+
+        # =========================================================
+        # SAVE VQC MODEL — FIXED (convert to plain numpy first)
+        # =========================================================
+        try:
+            weights_path = os.path.join(MODELS_DIR, "vqc_weights.npy")
+            
+            # ⚠️ Convert PennyLane tensor to plain numpy array
+            weights_to_save = np.array(trained_weights_flat, dtype=np.float64)
+            
+            np.save(weights_path, weights_to_save)
+            logger.info(f"[SAVED] VQC weights -> {weights_path}")
+
+            meta_path = os.path.join(MODELS_DIR, "vqc_metadata.json")
+            with open(meta_path, "w") as f:
+                json.dump({
+                    "n_qubits": n_qubits,
+                    "n_layers": n_layers,
+                    "circuit_meta": circuit_meta,
+                    "metrics": metrics,
+                    "shift_min": X_train.min(axis=0).tolist(),
+                    "shift_max": X_train.max(axis=0).tolist()
+                }, f, indent=2)
+            logger.info(f"[SAVED] VQC metadata -> {meta_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to save VQC model: {e}")
 
         self._save_to_db(
             "VQC (4-Qubit)", metrics, train_time,

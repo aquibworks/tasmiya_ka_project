@@ -5,6 +5,7 @@ from src.services.classical_service import classical_service
 from src.utils.logger import logger
 from src.services.quantum_service import quantum_service
 from src.services.analysis_service import analysis_service
+from src.services.prediction_service import prediction_service
 
 
 # Create a Pydantic model for the request body
@@ -392,3 +393,26 @@ def predict_record(request: PredictRequest):
             "status": "error",
             "message": str(e)
         }
+
+class RawPredictRequest(BaseModel):
+    model: str = "rf"  # "rf", "svm", "qsvm", "vqc"
+    features: dict     # 41-feature raw record as {column_name: value}
+
+
+def predict_raw_record(request: RawPredictRequest):
+    """Predict on a single raw NSL-KDD record."""
+    try:
+        logger.info(f"Predict request: model={request.model}")
+
+        if request.model == "rf" or request.model == "svm":
+            return prediction_service.predict_classical(request.features, model=request.model)
+        elif request.model == "qsvm":
+            return prediction_service.predict_qsvm(request.features)
+        elif request.model == "vqc":
+            return prediction_service.predict_vqc(request.features)
+        else:
+            return {"status": "error", "message": f"Unknown model: {request.model}"}
+
+    except Exception as e:
+        logger.error(f"Predict error: {str(e)}")
+        return {"status": "error", "message": str(e)}
